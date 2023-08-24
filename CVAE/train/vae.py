@@ -14,7 +14,7 @@ class UnFlatten(nn.Module):
 
 
 class VAE(nn.Module):
-    def __init__(self, image_channels=3, h_dim=8192, z_dim=16):  # h_dim 确定到底咋算的，我算的是C*H*W,但是报错算出来的h_dim和我算的不太一致
+    def __init__(self, image_channels=3, h_dim=8192, z_dim=16):  
         super(VAE, self).__init__()
         self.latent_dim = z_dim
         self.encoder = nn.Sequential(
