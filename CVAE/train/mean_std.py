@@ -30,55 +30,59 @@ def DR(x, reco_eit):
     DR = DR_up / DR_down
     return DR
 
-vae = torch.load("vae_model.pt", map_location=torch.device('cpu')) # change to your own vae model path
-fcn = torch.load("fcn_model.pt", map_location=torch.device('cpu')) # change to your own fcn model path
-vae.eval()
-fcn.eval()
+import torch
+import numpy as np
+from dival.measure import PSNR, SSIM
 
-# fig,ax = plt.subplots()
-# ax.imshow(xs_test[13].squeeze(),vmin=0,vmax=1.5)
-# plt.show()
+def calculate_metrics(xs, reco, metric_funcs):
+    """
+    Calculate and return results for all indicators.
+    :param xs: ground truth
+    :param reco: reconstruction
+    :param metric_funcs: Dictionary containing all indicator functions to be calculated
+    :return: Dictionary with results for all indicators
+    """
+    results = {}
+    for name, func in metric_funcs.items():
+        results[name] = func(xs, reco)
+    return results
 
-Mse,Re,Ae,Dr,Ssim, Psnr = [],[],[],[],[],[]
+def load_and_evaluate(ys_test, xs_test, vae_path, fcn_path):
+    """
+    加载模型并对测试数据集进行评估。
+    :param ys_test:
+    :param xs_test: 
+    :param vae_path: VAE model path。
+    :param fcn_path: FCN model pat。
+    """
+    device = torch.device('cpu')
+    vae = torch.load(vae_path, map_location=device)
+    fcn = torch.load(fcn_path, map_location=device)
+    vae.eval()
+    fcn.eval()
 
-for idx in range(len(ys_test)):
-    z = fcn(ys_test[idx])
-    reco_eit1 = vae.decode(z)
+    metrics = {
+        'MSE': lambda x, y: torch.nn.MSELoss()(x.squeeze(), y.squeeze()),
+        'RE': Re_sigma,
+        'AE': lambda x, y: torch.nn.L1Loss()(x.squeeze(), y.squeeze()),
+        'DR': DR,
+        'SSIM': lambda x, y: SSIM(x.numpy().squeeze(), y.numpy().squeeze()),
+        'PSNR': PSNR
+    }
+    results = {name: [] for name in metrics.keys()}
 
-    mse = torch.nn.MSELoss()(xs_test[idx].data.squeeze(), reco_eit1.data.squeeze())
-    re = Re_sigma(xs_test[idx].data.squeeze().cpu(), reco_eit1.data.squeeze().cpu())
-    ae = torch.nn.L1Loss()(xs_test[idx].data.squeeze(), reco_eit1.data.squeeze())
-    dr = DR(xs_test[idx].data.squeeze(), reco_eit1.data.squeeze())
-    ssim = SSIM(xs_test[idx].data.numpy().squeeze(), reco_eit1.data.numpy().squeeze())
-    psnr = PSNR(xs_test[idx].data.squeeze(), reco_eit1.data.squeeze())
+    for y, x in zip(ys_test, xs_test):
+        z = fcn(y)
+        reco = vae.decode(z)
+        metric_results = calculate_metrics(x.data.squeeze().cpu(), reco.data.squeeze().cpu(), metrics)
+        for name, result in metric_results.items():
+            results[name].append(result)
 
-    Mse.append(mse)
-    Re.append(re)
-    Ae.append(ae)
-    Dr.append(dr)
-    Ssim.append(ssim)
-    Psnr.append(psnr)
+    # calculate 
+    stats = {name: {'mean': np.mean(vals), 'std': np.std(vals, ddof=1), 'var': np.var(vals)}
+             for name, vals in results.items()}
+    
+    return stats
 
-
-mse_mean = np.mean(Mse)
-re_mean = np.mean(Re)
-ae_mean = np.mean(Ae)
-dr_mean = np.mean(Dr)
-ssim_mean = np.mean(Ssim)
-psnr_mean = np.mean(Psnr)
-
-
-mse_std = np.std(Mse, ddof=1)
-re_std = np.std(Re, ddof=1)
-ae_std = np.std(Ae, ddof=1)
-dr_std = np.std(Dr, ddof=1)
-ssim_std = np.std(Ssim, ddof=1)
-psnr_std = np.std(Psnr, ddof=1)
-
-mse_var = np.var(Mse)
-re_var = np.var(Re)
-ae_var = np.var(Ae)
-dr_var = np.var(Dr)
-ssim_var = np.var(Ssim)
-psnr_var = np.var(Psnr)
-print(0)
+stats = load_and_evaluate(ys_test, xs_test, "vae_model.pt", "fcn_model.pt")
+print(stats)

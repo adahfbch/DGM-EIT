@@ -1,7 +1,5 @@
 """Training and evaluation for score-based generative models. """
 
-import gc
-import io
 import os
 import time
 
@@ -10,23 +8,19 @@ import tensorflow as tf
 import tensorflow_gan as tfgan
 import logging
 # Keep the import below for registering all model definitions
-import cs
 from models import ddpm, ncsnv2, ncsnpp
 import losses
 import sampling
 from models import utils as mutils
 from models.ema import ExponentialMovingAverage
 import datasets
-import evaluation
-import likelihood
 import sde_lib
 from absl import flags
 import torch
 from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
 from utils import save_checkpoint, restore_checkpoint, Re_sigma, DR
-from skimage.metrics import peak_signal_noise_ratio, structural_similarity
-import matplotlib.pyplot as plt
+from dival.measure import PSNR, SSIM
 import random
 
 FLAGS = flags.FLAGS
@@ -256,8 +250,9 @@ def evaluate(config,
             state = restore_checkpoint(ckpt_path, state, device=config.device)
     ema.copy_to(score_model.parameters())
     # Compute the loss function on the full evaluation dataset if loss computation is enabled
-    # if config.eval.enable_loss:
-    all_losses, Psnr, Ssim, Mse, Re, Ae, DDR = [], [], [], [], [], [], []
+    # Initialization of metric collections
+    metrics_summary = {'PSNR': [], 'SSIM': [], 'MSE': [], 'RE': [], 'AE': [], 'DR': []}
+    all_losses = []
     eval_iter = iter(test_ds)  # pytype: disable=wrong-arg-types
     for i, batch in enumerate(eval_iter):
         eval_batch = batch[1].to(config.device).float()
@@ -271,50 +266,29 @@ def evaluate(config,
         y = batch[2].cpu().numpy()
         sample, n = sampling_fn(score_model, xs_inv)
 
-        ground_truth = eval_batch
-        from dival.measure import PSNR, SSIM
-        psnr = PSNR(ground_truth.squeeze().cpu().detach().numpy(),
-                    sample.clamp(1e-05, 2.5).squeeze().cpu().detach().numpy())
-        ssim = SSIM(ground_truth.squeeze().cpu().detach().numpy(),
-                    sample.clamp(1e-05, 2.5).squeeze().cpu().detach().numpy())
+        # Calculate metrics
+        metrics = calculate_metrics(sample, eval_batch)
+        for key, value in metrics.items():
+            metrics_summary[key].append(value.item())
 
-        mse = torch.nn.MSELoss()(ground_truth.squeeze().cpu().detach(),
-                                 sample.clamp(1e-05, 2.5).squeeze().cpu().detach())
-        re = Re_sigma(ground_truth.squeeze().cpu().detach(),
-                                 sample.clamp(1e-05, 2.5).squeeze().cpu().detach())
-        dr = DR(ground_truth.squeeze().cpu().detach(),
-                                 sample.clamp(1e-05, 2.5).squeeze().cpu().detach())
-        ae = torch.nn.L1Loss()(ground_truth.squeeze().cpu().detach(),
-                                 sample.clamp(1e-05, 2.5).squeeze().cpu().detach())
+    # Compute mean and std of metrics
+    metrics_final = {metric: {'mean': np.mean(values), 'std': np.std(values)} for metric, values in metrics_summary.items()}
+    for metric, stats in metrics_final.items():
+        logging.info(f'{metric}: Mean = {stats["mean"]:.4f}, Std = {stats["std"]:.4f}')
+    
+def calculate_metrics(sample, ground_truth, device='cpu'):
+    """Calculate metrics for a single batch."""
+    metrics = {}
+    sample_clamped = sample.clamp(1e-05, 2.5).squeeze().cpu().detach()
+    ground_truth = ground_truth.squeeze().cpu().detach()
 
-        # fig, ax = plt.subplots(1, 2)
-        # ax[0].imshow(ground_truth.squeeze().cpu().numpy(), vmin=0, vmax=2)
-        # ax[1].imshow(sample.detach().clamp(1e-05, 2).squeeze().cpu().numpy(), vmin=0, vmax=2)
-        # plt.title(f'PSNR: {psnr:.7f}, MSE:{mse:.7f}  \n SSIM: {ssim:.7f},')
-        # plt.show()
-        # writer.add_figure('test',fig,i)
+    metrics['MSE'] = torch.nn.MSELoss()(ground_truth, sample_clamped)
+    metrics['AE'] = torch.nn.L1Loss()(ground_truth, sample_clamped)
+    metrics['RE'] = Re_sigma(ground_truth,sample)
+    metrics['DR'] = DR(ground_truth,sample)
+    
+    # Use external libraries or custom implementations for PSNR and SSIM
+    metrics['PSNR'] = PSNR(ground_truth.numpy(), sample_clamped.numpy())
+    metrics['SSIM'] = SSIM(ground_truth.numpy(), sample_clamped.numpy())
 
-        Psnr.append(psnr)
-        Ssim.append(ssim)
-        Mse.append(mse)
-        Re.append(re)
-        Ae.append(ae)
-        DDR.append(dr)
-        logging.info(f'PSNR: {psnr:.4f}, SSIM: {ssim:.4f}, MSE:{mse:.4f}')
-        # print(f'PSNR: {psnr:.4f}, SSIM: {ssim:.4f}, MSE:{mse:.4f}')
-        # writer.add_scalar("PSNR", psnr, i)
-        # writer.add_scalar("SSIM", ssim, i)
-        # writer.add_scalar("MSE", mse, i)
-    mse_mean = np.mean(Mse)
-    psnr_mean = np.mean(Psnr)
-    ssim_mean = np.mean(Ssim)
-    re_mean = np.mean(Re)
-    ae_mean = np.mean(Ae)
-    dr_mean = np.mean(DDR)
-    mse_std = np.std(Mse)
-    psnr_std = np.std(Psnr)
-    ssim_std = np.std(Ssim)
-    re_std = np.std(Re)
-    ae_std = np.std(Ae)
-    dr_std = np.std(DDR)
-    print(0)
+    return metrics

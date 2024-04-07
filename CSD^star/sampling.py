@@ -100,10 +100,10 @@ def get_sampling_fn(config, sde, shape, inverse_scaler, eps):
                                  denoise=config.sampling.noise_removal,
                                  eps=eps,
                                  device=config.device)
-  elif sampler_name.lower() == 'pc1':
+  elif sampler_name.lower() == 'csds':
     predictor = get_predictor(config.sampling.predictor.lower())
     corrector = get_corrector(config.sampling.corrector.lower())
-    sampling_fn = get_pc_sampler1(sde=sde,
+    sampling_fn = get_pc_sampler_csds(sde=sde,
                                  shape=shape,
                                  predictor=predictor,
                                  corrector=corrector,
@@ -407,7 +407,7 @@ def get_pc_sampler(sde, shape, predictor, corrector, inverse_scaler, snr,
 
   return pc_sampler
 
-def get_pc_sampler1(sde, shape, predictor, corrector, inverse_scaler, snr,
+def get_pc_sampler_csds(sde, shape, predictor, corrector, inverse_scaler, snr,
                    n_steps=1, probability_flow=False, continuous=False,
                    denoise=True, eps=1e-3, device='cuda'):
   """Create a Predictor-Corrector (PC) sampler.
@@ -456,8 +456,6 @@ def get_pc_sampler1(sde, shape, predictor, corrector, inverse_scaler, snr,
       timesteps = torch.linspace(sde.T, eps, sde.N, device=device)
 
       for i in range(550, sde.N): #range(560,sde.N)
-        # if i<560:
-        #   x = xs_inv.to(device)
         t = timesteps[i]
         vec_t = torch.ones(shape[0], device=t.device) * t
         x, x_mean = corrector_update_fn(x, vec_t, model=model)

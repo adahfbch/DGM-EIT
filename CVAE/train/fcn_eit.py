@@ -85,7 +85,7 @@ for batch_size in Batch_size:
                 #     fcn_writer.add_histogram(name + '_grad', layer.grad.cpu().data.numpy(), epoch)
                 #     fcn_writer.add_histogram(name + '_data', layer.cpu().data.numpy(), epoch)
 
-                # 测试
+                # test
                 fcn.eval()
                 with torch.no_grad():
                     for idx, data in enumerate(dd_val_loader):

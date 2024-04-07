@@ -20,7 +20,7 @@ def get_config():
 
   # sampling
   sampling = config.sampling
-  sampling.method = 'pc1'
+  sampling.method = 'csds'
   sampling.predictor = 'reverse_diffusion'
   sampling.corrector = 'ald'
   sampling.snr = 0.056
@@ -38,7 +38,7 @@ def get_config():
   model = config.model
   model.name = 'ncsnpp'
   model.scale_by_sigma = True
-  model.sigma_max = 128. #128
+  model.sigma_max = 128. 
   model.num_scales = 1000
   model.ema_rate = 0.999
   model.sigma_min = 0.01
@@ -53,7 +53,7 @@ def get_config():
   model.nf = 32
   model.ch_mult = (1, 1, 2, 2, 2, 2, 2)
   model.num_res_blocks = 2
-  model.attn_resolutions = (20,) #20
+  model.attn_resolutions = (20,) 
   model.dropout = 0.
   model.resamp_with_conv = True
   model.conditional = True
