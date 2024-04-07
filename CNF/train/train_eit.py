@@ -975,12 +975,13 @@ if __name__ == '__main__':
 
     num_data_loader_workers = 0
     batch_size =8
+    #change to your own data_path
     train_data_file_list = [os.path.join(r'data_path', f'{i}.npz') for i in
-                            range(0, 24)] #change to your own data_path
+                            range(0, 24)] 
     val_data_file_list = [os.path.join(r'data_path', f'{i}.npz') for i in
-                          range(24, 27)] #change to your own data_path
+                          range(24, 27)] 
     test_data_file_list = [os.path.join(r'data_path', f'{i}.npz') for i in
-                           range(27, 28)] #change to your own data_path
+                           range(27, 28)] 
 
     dataset = EITDataModule(train_data_file_list=train_data_file_list,
                             val_data_file_list=val_data_file_list,
@@ -1024,56 +1025,46 @@ if __name__ == '__main__':
             model.load_state_dict(torch.load(test_checkpoint_path)['state_dict'],strict=False)
             model.eval()
 
-
-            MMse, PPsnr, SSsim, AAe, RRe, DDr = [], [], [], [], [], []
-            for idx, images in enumerate(dataset.test_dataloader()):
-
+            def calculate_metrics(images, model, img_size, device='cpu'):
+                metrics = {'MSE': [], 'PSNR': [], 'SSIM': [], 'AE': [], 'RE': [], 'DR': []}
+                
                 with torch.no_grad():
-                    Mse, Psnr, Ssim, Ae, Re, Dr = [], [], [], [], [], []
-                    # calculate index
-                    for _ in range(20):
-                        z = torch.randn((images[1].shape[0], img_size[0] * img_size[1]))
-                        x_gn = model(z, images[0], True)
-                        mse = torch.nn.MSELoss()(x_gn.cpu(), images[1].cpu())
-                        re = Re_sigma(x_gn.cpu(), images[1].cpu())
-                        ae = torch.nn.L1Loss()(x_gn.cpu(), images[1].cpu())
-                        dr = DR(x_gn.cpu(), images[1].cpu())
-                        ssim = SSIM(x_gn.cpu().numpy().squeeze(), images[1].cpu().numpy().squeeze())
-                        psnr = PSNR(x_gn.cpu(), images[1].cpu())
-                        Mse.append(mse)
-                        Psnr.append(psnr)
-                        Ssim.append(ssim)
-                        Re.append(re)
-                        Ae.append(ae)
-                        Dr.append(dr)
-                    # mse_mean = np.mean([((x_gn.cpu() - images[1].cpu()) ** 2).mean()])
-                    mse_mean = np.mean(Mse)
-                    psnr_mean = np.mean(Psnr)
-                    ssim_mean = np.mean(Ssim)
-                    re_mean = np.mean(Re)
-                    ae_mean = np.mean(Ae)
-                    dr_mean = np.mean(Dr)
-                MMse.append(mse_mean)
-                PPsnr.append(psnr_mean)
-                SSsim.append(ssim_mean)
-                RRe.append(re_mean)
-                AAe.append(ae_mean)
-                DDr.append(dr_mean)
-            mmse_mean = np.mean(MMse)
-            ppsnr_mean = np.mean(PPsnr)
-            sssim_mean = np.mean(SSsim)
-            rre_mean = np.mean(RRe)
-            aae_mean = np.mean(AAe)
-            ddr_mean = np.mean(DDr)
-            mse_var = np.std(MMse)
-            psnr_var = np.std(PPsnr)
-            ssim_var = np.std(SSsim)
-            re_var = np.std(RRe)
-            ar_var = np.std(AAe)
-            dr_var = np.std(DDr)
+                    for _ in range(20):  
+                        z = torch.randn((images[1].shape[0], img_size[0] * img_size[1]), device=device)
+                        x_gn = model(z, images[0], return_loss=False).cpu()
+                        ground_truth = images[1].cpu()
 
+                        mse = torch.nn.MSELoss()(x_gn, ground_truth)
+                        ae = torch.nn.L1Loss()(x_gn, ground_truth)
+                        re = Re_sigma(x_gn, ground_truth)  
+                        dr = DR(x_gn, ground_truth) 
+                        ssim = SSIM(x_gn.numpy().squeeze(), ground_truth.numpy().squeeze())  
+                        psnr = PSNR(x_gn, ground_truth) 
 
-            print(0)
+                        metrics['MSE'].append(mse.item())
+                        metrics['AE'].append(ae.item())
+                        metrics['RE'].append(re)
+                        metrics['DR'].append(dr)
+                        metrics['SSIM'].append(ssim)
+                        metrics['PSNR'].append(psnr)
+
+                metrics_summary = {metric: {'mean': np.mean(values), 'std': np.std(values)} for metric, values in metrics.items()}
+                return metrics_summary
+
+            results = []
+            for idx, images in enumerate(dataset.test_dataloader()):
+                metrics_summary = calculate_metrics(images, model, img_size)
+                results.append(metrics_summary)
+
+            final_metrics = {}
+            for metric in results[0].keys():
+                final_metrics[metric] = {
+                    'mean': np.mean([m[metric]['mean'] for m in results]),
+                    'std': np.mean([m[metric]['std'] for m in results]),
+                }
+
+            for metric, values in final_metrics.items():
+                print(f'{metric}: Mean = {values["mean"]:.4f}, Std = {values["std"]:.4f}')
 
 
 
